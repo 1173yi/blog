@@ -1,0 +1,31 @@
+name: ブログ記事自動生成・投稿
+
+on:
+  schedule:
+    # 毎日 朝9時（JST）に実行 ※UTC+9 なので UTC 0時
+    - cron: "0 0 * * *"
+  workflow_dispatch: # 手動実行ボタンも有効化
+
+jobs:
+  generate-and-post:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python をセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 依存パッケージをインストール
+        run: pip install requests
+
+      - name: 記事を生成してWordPressに下書き投稿
+        env:
+          WP_URL: ${{ secrets.WP_URL }}
+          WP_USER: ${{ secrets.WP_USER }}
+          WP_APP_PASS: ${{ secrets.WP_APP_PASS }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python generate_and_post.py
