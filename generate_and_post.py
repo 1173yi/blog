@@ -1,7 +1,7 @@
 """
-ブログ記事自動生成・投稿スクリプト
+ブログ記事自動生成・投稿スクリプト（JWT認証版）
 - Claude API (Haiku 4.5) で記事生成
-- WordPress REST API で投稿（下書き保存）
+- WordPress REST API（JWT認証）で投稿（下書き保存）
 """
 
 import os
@@ -9,7 +9,6 @@ import json
 import random
 import requests
 from datetime import datetime
-from base64 import b64encode
 
 # ─────────────────────────────────────────
 # 設定（GitHub Secrets から自動取得）
@@ -23,13 +22,13 @@ ANTHROPIC_KEY = os.environ["ANTHROPIC_API_KEY"]
 # 記事テーマ候補
 # ─────────────────────────────────────────
 THEMES = [
-    {"title_hint": "30代子育て世帯のふるさと納税活用術",                     "keyword": "ふるさと納税 子育て 30代"},
-    {"title_hint": "年収700万円台でも保険は見直せる｜実体験から考える最適解", "keyword": "保険 見直し 年収700万"},
-    {"title_hint": "NISAとiDeCo、どちらを優先すべきか？30代の正解",         "keyword": "NISA iDeCo 優先 30代"},
-    {"title_hint": "子育て世帯が知っておくべき児童手当の使い方",             "keyword": "児童手当 使い方 資産形成"},
-    {"title_hint": "不動産投資セミナーに行って分かったこと｜30代会社員の視点","keyword": "不動産投資 セミナー 30代 体験"},
-    {"title_hint": "家計の生活防衛資金、いくら持てば安心？我が家の基準",     "keyword": "防衛資金 生活費 何ヶ月分"},
-    {"title_hint": "クレジットカードのポイントを資産形成に活かす方法",       "keyword": "クレジットカード ポイント 資産形成"},
+    {"title_hint": "30代子育て世帯のふるさと納税活用術",                      "keyword": "ふるさと納税 子育て 30代"},
+    {"title_hint": "年収700万円台でも保険は見直せる｜実体験から考える最適解",  "keyword": "保険 見直し 年収700万"},
+    {"title_hint": "NISAとiDeCo、どちらを優先すべきか？30代の正解",          "keyword": "NISA iDeCo 優先 30代"},
+    {"title_hint": "子育て世帯が知っておくべき児童手当の使い方",              "keyword": "児童手当 使い方 資産形成"},
+    {"title_hint": "不動産投資セミナーに行って分かったこと｜30代会社員の視点", "keyword": "不動産投資 セミナー 30代 体験"},
+    {"title_hint": "家計の生活防衛資金、いくら持てば安心？我が家の基準",      "keyword": "防衛資金 生活費 何ヶ月分"},
+    {"title_hint": "クレジットカードのポイントを資産形成に活かす方法",        "keyword": "クレジットカード ポイント 資産形成"},
 ]
 
 
@@ -79,8 +78,6 @@ def generate_article(theme: dict) -> dict:
     response.raise_for_status()
 
     raw = response.json()["content"][0]["text"].strip()
-
-    # コードブロックが混入した場合の保険
     if "```" in raw:
         raw = raw.split("```")[1]
         if raw.startswith("json"):
@@ -89,21 +86,32 @@ def generate_article(theme: dict) -> dict:
     return json.loads(raw, strict=False)
 
 
+def get_jwt_token() -> str:
+    """JWT認証トークンを取得"""
+    base = WP_URL.rstrip("/")
+    res = requests.post(
+        f"{base}/wp-json/jwt-auth/v1/token",
+        json={"username": WP_USER, "password": WP_APP_PASS},
+        timeout=30,
+    )
+    if res.status_code != 200:
+        raise Exception(f"JWT認証失敗: {res.status_code} {res.text[:300]}")
+    token = res.json().get("token")
+    if not token:
+        raise Exception(f"JWTトークン取得失敗: {res.text[:300]}")
+    print("[JWT認証OK]")
+    return token
+
+
 def post_to_wordpress(article: dict) -> str:
-    token = b64encode(f"{WP_USER}:{WP_APP_PASS}".encode()).decode()
+    """WordPress REST API（JWT認証）で下書き投稿"""
+    token = get_jwt_token()
+    base = WP_URL.rstrip("/")
     headers = {
-        "Authorization": f"Basic {token}",
+        "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
-    base = WP_URL.rstrip("/")
 
-    # 認証テスト
-    me = requests.get(f"{base}/wp-json/wp/v2/users/me", headers=headers, timeout=30)
-    if me.status_code != 200:
-        raise Exception(f"WordPress認証失敗: {me.status_code} {me.text[:200]}")
-    print(f"[WordPress認証OK] ユーザー: {me.json().get('name')}")
-
-    # カテゴリなしでシンプルに下書き投稿
     post_data = {
         "title":   article["title"],
         "content": article["content"],
