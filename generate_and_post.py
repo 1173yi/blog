@@ -86,7 +86,7 @@ def generate_article(theme: dict) -> dict:
         if raw.startswith("json"):
             raw = raw[4:].strip()
 
-    return json.loads(raw)
+    return json.loads(raw, strict=False)
 
 
 def post_to_wordpress(article: dict) -> str:
