@@ -14,63 +14,32 @@ from base64 import b64encode
 # ─────────────────────────────────────────
 # 設定（GitHub Secrets から自動取得）
 # ─────────────────────────────────────────
-WP_URL      = os.environ["WP_URL"]           # https://virtualstarparty.org
-WP_USER     = os.environ["WP_USER"]          # 投稿専用ユーザー名
-WP_APP_PASS = os.environ["WP_APP_PASS"]      # アプリケーションパスワード
+WP_URL        = os.environ["WP_URL"]
+WP_USER       = os.environ["WP_USER"]
+WP_APP_PASS   = os.environ["WP_APP_PASS"]
 ANTHROPIC_KEY = os.environ["ANTHROPIC_API_KEY"]
 
 # ─────────────────────────────────────────
-# 記事テーマ候補（週替わりで自動選択）
+# 記事テーマ候補
 # ─────────────────────────────────────────
 THEMES = [
-    {
-        "title_hint": "30代子育て世帯のふるさと納税活用術",
-        "keyword": "ふるさと納税 子育て 30代",
-        "category": "お金と資産形成",
-    },
-    {
-        "title_hint": "年収700万円台でも保険は見直せる｜実体験から考える最適解",
-        "keyword": "保険 見直し 年収700万",
-        "category": "家族資産設計",
-    },
-    {
-        "title_hint": "NISAとiDeCo、どちらを優先すべきか？30代の正解",
-        "keyword": "NISA iDeCo 優先 30代",
-        "category": "投資・資産運用",
-    },
-    {
-        "title_hint": "子育て世帯が知っておくべき児童手当の使い方",
-        "keyword": "児童手当 使い方 資産形成",
-        "category": "家計公開",
-    },
-    {
-        "title_hint": "不動産投資セミナーに行って分かったこと｜30代会社員の視点",
-        "keyword": "不動産投資 セミナー 30代 体験",
-        "category": "不動産投資",
-    },
-    {
-        "title_hint": "家計の生活防衛資金、いくら持てば安心？我が家の基準",
-        "keyword": "防衛資金 生活費 何ヶ月分",
-        "category": "防衛資金",
-    },
-    {
-        "title_hint": "クレジットカードのポイントを資産形成に活かす方法",
-        "keyword": "クレジットカード ポイント 資産形成",
-        "category": "お金と資産形成",
-    },
+    {"title_hint": "30代子育て世帯のふるさと納税活用術",                     "keyword": "ふるさと納税 子育て 30代"},
+    {"title_hint": "年収700万円台でも保険は見直せる｜実体験から考える最適解", "keyword": "保険 見直し 年収700万"},
+    {"title_hint": "NISAとiDeCo、どちらを優先すべきか？30代の正解",         "keyword": "NISA iDeCo 優先 30代"},
+    {"title_hint": "子育て世帯が知っておくべき児童手当の使い方",             "keyword": "児童手当 使い方 資産形成"},
+    {"title_hint": "不動産投資セミナーに行って分かったこと｜30代会社員の視点","keyword": "不動産投資 セミナー 30代 体験"},
+    {"title_hint": "家計の生活防衛資金、いくら持てば安心？我が家の基準",     "keyword": "防衛資金 生活費 何ヶ月分"},
+    {"title_hint": "クレジットカードのポイントを資産形成に活かす方法",       "keyword": "クレジットカード ポイント 資産形成"},
 ]
 
 
 def pick_theme():
-    """日付のシードで毎日違うテーマを選ぶ（重複しにくい）"""
     seed = int(datetime.now().strftime("%Y%m%d"))
     random.seed(seed)
     return random.choice(THEMES)
 
 
 def generate_article(theme: dict) -> dict:
-    """Claude API で記事を生成して title/content を返す"""
-
     system_prompt = """
 あなたは「コンサルパパの家族資産設計ブログ」の著者です。
 プロフィール：33歳・会社員・コンサルタント・妻と1歳娘の3人家族・年収700万円台。
@@ -86,17 +55,11 @@ def generate_article(theme: dict) -> dict:
 - HTMLで出力する（WordPressにそのまま貼れる形式）
 
 出力形式：
-必ずJSON形式で返すこと。マークダウンのコードブロックは使わない。
+必ずJSON形式のみで返すこと。マークダウンのコードブロック（```）は絶対に使わない。
 {"title": "記事タイトル", "content": "HTML本文", "excerpt": "120字以内の抜粋"}
 """.strip()
 
-    user_prompt = f"""
-以下のテーマで記事を書いてください。
-
-テーマ：{theme['title_hint']}
-狙うキーワード：{theme['keyword']}
-カテゴリ：{theme['category']}
-""".strip()
+    user_prompt = f"テーマ：{theme['title_hint']}\n狙うキーワード：{theme['keyword']}"
 
     response = requests.post(
         "https://api.anthropic.com/v1/messages",
@@ -117,19 +80,16 @@ def generate_article(theme: dict) -> dict:
 
     raw = response.json()["content"][0]["text"].strip()
 
-    # JSONのコードブロックが混入した場合の保険
-    if raw.startswith("```"):
+    # コードブロックが混入した場合の保険
+    if "```" in raw:
         raw = raw.split("```")[1]
         if raw.startswith("json"):
-            raw = raw[4:]
+            raw = raw[4:].strip()
 
-    article = json.loads(raw)
-    return article
+    return json.loads(raw)
 
 
-def post_to_wordpress(article: dict, category_name: str) -> str:
-    """WordPress REST API で下書き投稿し、URLを返す"""
-
+def post_to_wordpress(article: dict) -> str:
     token = b64encode(f"{WP_USER}:{WP_APP_PASS}".encode()).decode()
     headers = {
         "Authorization": f"Basic {token}",
@@ -137,42 +97,31 @@ def post_to_wordpress(article: dict, category_name: str) -> str:
     }
     base = WP_URL.rstrip("/")
 
-    # カテゴリIDを取得（なければ作成）
-    cat_res = requests.get(
-        f"{base}/wp-json/wp/v2/categories",
-        params={"search": category_name},
-        headers=headers,
-        timeout=30,
-    )
-    cats = cat_res.json()
-    if cats:
-        cat_id = cats[0]["id"]
-    else:
-        new_cat = requests.post(
-            f"{base}/wp-json/wp/v2/categories",
-            headers=headers,
-            json={"name": category_name},
-            timeout=30,
-        )
-        cat_id = new_cat.json()["id"]
+    # 認証テスト
+    me = requests.get(f"{base}/wp-json/wp/v2/users/me", headers=headers, timeout=30)
+    if me.status_code != 200:
+        raise Exception(f"WordPress認証失敗: {me.status_code} {me.text[:200]}")
+    print(f"[WordPress認証OK] ユーザー: {me.json().get('name')}")
 
-    # 投稿（status="draft" で下書き保存）
+    # カテゴリなしでシンプルに下書き投稿
     post_data = {
-        "title": article["title"],
+        "title":   article["title"],
         "content": article["content"],
         "excerpt": article.get("excerpt", ""),
-        "status": "draft",          # ← 確認後に手動で公開
-        "categories": [cat_id],
+        "status":  "draft",
     }
 
-    post_res = requests.post(
+    res = requests.post(
         f"{base}/wp-json/wp/v2/posts",
         headers=headers,
         json=post_data,
         timeout=30,
     )
-    post_res.raise_for_status()
-    return post_res.json().get("link", "（URL取得失敗）")
+
+    if res.status_code not in (200, 201):
+        raise Exception(f"投稿失敗: {res.status_code} {res.text[:300]}")
+
+    return res.json().get("link", "（URL取得失敗）")
 
 
 def main():
@@ -184,9 +133,9 @@ def main():
     print(f"[タイトル] {article['title']}")
 
     print("[WordPress投稿中（下書き）...]")
-    url = post_to_wordpress(article, theme["category"])
+    url = post_to_wordpress(article)
     print(f"[完了] 下書き保存: {url}")
-    print("※ WordPress管理画面で内容を確認し、[PR]箇所にアフィリエイトリンクを挿入後、公開してください。")
+    print("※ WordPress管理画面→投稿→下書きを確認し、[PR]箇所にASPリンクを挿入後、公開してください。")
 
 
 if __name__ == "__main__":
